@@ -22,10 +22,7 @@ fn get_data_dir() -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "无法获取用户数据目录"))?
         .join("rhizome");
 
-    // 确保目录存在
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir)?;
-    }
+    fs::create_dir_all(&data_dir)?;
 
     Ok(data_dir)
 }
