@@ -28,6 +28,7 @@ pub enum AppMode {
     Normal,
     AddingNode,
     EditingContent(String), // String is the node ID being edited
+    EditingTitle(String),   // String is the node ID being edited
     MovingNode(String),     // String is the node ID to move
     Confirm(ConfirmAction),
 }
@@ -140,6 +141,24 @@ impl App {
         self.mode = AppMode::Normal;
         self.input_buffer.clear();
         self.message = Some("内容已更新".to_string());
+    }
+
+    pub fn start_edit_title(&mut self) {
+        if let Some(node) = self.selected_node() {
+            let id = node.id.clone();
+            let title = node.title.clone();
+            self.mode = AppMode::EditingTitle(id);
+            self.input_buffer = title;
+        }
+    }
+
+    pub fn confirm_edit_title(&mut self, node_id: String) {
+        if let Some(node) = self.tree.nodes.get_mut(&node_id) {
+            node.title = self.input_buffer.clone();
+        }
+        self.mode = AppMode::Normal;
+        self.input_buffer.clear();
+        self.message = Some("标题已更新".to_string());
     }
 
     pub fn start_move_node(&mut self) {
@@ -257,6 +276,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     match &app.mode {
         AppMode::AddingNode => render_add_dialog(frame, app),
         AppMode::EditingContent(_) => render_edit_content_dialog(frame, app),
+        AppMode::EditingTitle(_) => render_edit_title_dialog(frame, app),
         AppMode::MovingNode(_) => {} // 移动模式下不需要额外弹窗，使用底部提示
         AppMode::Confirm(action) => render_confirm_dialog(frame, action),
         _ => {}
@@ -358,6 +378,7 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
             InputField::Content => "输入内容后按 [Enter] 完成  [Esc] 取消",
         },
         AppMode::EditingContent(_) => "[Enter] 保存  [Esc] 取消",
+        AppMode::EditingTitle(_) => "[Enter] 保存  [Esc] 取消",
         AppMode::MovingNode(_) => "[j/k] 选择目标位置  [m] 确认移动  [Esc] 取消",
         AppMode::Confirm(_) => "[y] 确认  [n] 取消",
     };
@@ -471,6 +492,34 @@ fn render_edit_content_dialog(frame: &mut Frame, app: &App) {
     frame.render_widget(hint, chunks[1]);
 }
 
+fn render_edit_title_dialog(frame: &mut Frame, app: &App) {
+    let area = centered_rect(70, 40, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title("编辑节点标题")
+        .borders(Borders::ALL)
+        .style(Style::default().fg(Color::Cyan));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Min(5), Constraint::Length(2)])
+        .split(inner);
+
+    let content_input = Paragraph::new(app.input_buffer.as_str())
+        .style(Style::default().fg(Color::Yellow))
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("标题").borders(Borders::ALL));
+    frame.render_widget(content_input, chunks[0]);
+
+    let hint = Paragraph::new("按 Enter 保存，Esc 取消").style(Style::default().fg(Color::Gray));
+    frame.render_widget(hint, chunks[1]);
+}
+
 fn render_confirm_dialog(frame: &mut Frame, action: &ConfirmAction) {
     let area = centered_rect(50, 20, frame.area());
     frame.render_widget(Clear, area);
@@ -516,6 +565,7 @@ pub fn handle_key_event(app: &mut App, key: KeyCode) -> io::Result<bool> {
             KeyCode::Char('k') | KeyCode::Up => app.move_up(),
             KeyCode::Char('a') => app.start_add_node(),
             KeyCode::Char('e') => app.start_edit_content(),
+            KeyCode::Char('r') => app.start_edit_title(),
             KeyCode::Char('m') => app.start_move_node(),
             KeyCode::Char('d') => app.start_delete_node(),
             KeyCode::Char('f') => app.start_fail_node(),
@@ -549,6 +599,20 @@ pub fn handle_key_event(app: &mut App, key: KeyCode) -> io::Result<bool> {
             KeyCode::Enter => {
                 let id = node_id.clone();
                 app.confirm_edit_content(id);
+            }
+            KeyCode::Backspace => {
+                app.input_buffer.pop();
+            }
+            KeyCode::Char(c) => {
+                app.input_buffer.push(c);
+            }
+            _ => {}
+        },
+        AppMode::EditingTitle(node_id) => match key {
+            KeyCode::Esc => app.cancel(),
+            KeyCode::Enter => {
+                let id = node_id.clone();
+                app.confirm_edit_title(id);
             }
             KeyCode::Backspace => {
                 app.input_buffer.pop();
