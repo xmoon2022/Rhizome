@@ -67,12 +67,15 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
     loop {
         terminal.draw(|f| render(f, app))?;
 
-        if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-            if key.kind == crossterm::event::KeyEventKind::Press {
+        match crossterm::event::read()? {
+            crossterm::event::Event::Key(key)
+                if key.kind == crossterm::event::KeyEventKind::Press =>
+            {
                 if ui::handle_key_event(app, key.code)? {
                     break;
                 }
             }
+            _ => {}
         }
     }
     Ok(())
