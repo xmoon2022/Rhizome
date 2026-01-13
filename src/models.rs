@@ -50,6 +50,11 @@ impl FocusNode {
     pub fn is_root(&self) -> bool {
         self.parent_id.is_empty()
     }
+
+    pub fn days_active(&self) -> i64 {
+        let duration = Local::now() - self.created_at;
+        duration.num_days().max(0)
+    }
 }
 
 /// TOML文件结构
@@ -295,5 +300,16 @@ mod tests {
         assert_eq!(deleted.len(), 2); // child + grandchild
         assert_eq!(tree.nodes.len(), 1); // only root remains
         assert!(tree.nodes.contains_key(&root_id));
+    }
+
+    #[test]
+    fn test_days_active() {
+        use chrono::Duration;
+
+        let mut node = FocusNode::new("Test".to_string(), "".to_string(), None);
+        assert_eq!(node.days_active(), 0);
+
+        node.created_at = Local::now() - Duration::days(5);
+        assert_eq!(node.days_active(), 5);
     }
 }

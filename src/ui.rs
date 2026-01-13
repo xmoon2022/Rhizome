@@ -318,7 +318,11 @@ fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let content = format!(
                 "{}{}{} ({} 天) [{}]",
-                indent, prefix, node.title, node.streak_days, status_icon
+                indent,
+                prefix,
+                node.title,
+                node.days_active(),
+                status_icon
             );
 
             let style = if i == app.selected_index {
@@ -349,7 +353,7 @@ fn render_details(frame: &mut Frame, app: &App, area: Rect) {
             "标题: {}\n创建于: {}  连续: {} 天  状态: {:?}\n规则: {}",
             node.title,
             node.created_at.format("%Y-%m-%d %H:%M"),
-            node.streak_days,
+            node.days_active(),
             node.status,
             if node.content.is_empty() {
                 "(无)"
@@ -371,7 +375,7 @@ fn render_details(frame: &mut Frame, app: &App, area: Rect) {
 fn render_help(frame: &mut Frame, app: &App, area: Rect) {
     let help_text = match &app.mode {
         AppMode::Normal => {
-            "[a] 添加  [e] 编辑内容  [m] 移动  [d] 删除  [f] 失败  [j/k] 导航  [q] 退出"
+            "[a] 添加  [e] 编辑内容  [r] 重命名  [m] 移动  [d] 删除  [f] 失败  [j/k] 导航  [q] 退出"
         }
         AppMode::AddingNode => match app.input_field {
             InputField::Title => "输入标题后按 [Enter] 继续  [Esc] 取消",
