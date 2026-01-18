@@ -4,18 +4,13 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// 节点状态
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeStatus {
-    Active,    // 活跃状态
+    #[default]
+    Active, // 活跃状态
     Failed,    // 失败状态
     Completed, // 已完成（内化为习惯）
-}
-
-impl Default for NodeStatus {
-    fn default() -> Self {
-        NodeStatus::Active
-    }
 }
 
 /// 国策节点
@@ -132,7 +127,7 @@ impl FocusTree {
         } else {
             self.children_map
                 .entry(parent_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id.clone());
         }
 
@@ -179,10 +174,8 @@ impl FocusTree {
                 // 从父节点的children_map中移除
                 if node.is_root() {
                     self.root_ids.retain(|x| x != id);
-                } else {
-                    if let Some(siblings) = self.children_map.get_mut(&node.parent_id) {
-                        siblings.retain(|x| x != id);
-                    }
+                } else if let Some(siblings) = self.children_map.get_mut(&node.parent_id) {
+                    siblings.retain(|x| x != id);
                 }
                 // 移除自己的children_map条目
                 self.children_map.remove(id);

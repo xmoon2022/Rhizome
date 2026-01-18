@@ -192,10 +192,8 @@ impl App {
             // 从旧父节点中移除
             if node.is_root() {
                 self.tree.root_ids.retain(|id| id != &node_id);
-            } else {
-                if let Some(siblings) = self.tree.children_map.get_mut(&node.parent_id) {
-                    siblings.retain(|id| id != &node_id);
-                }
+            } else if let Some(siblings) = self.tree.children_map.get_mut(&node.parent_id) {
+                siblings.retain(|id| id != &node_id);
             }
 
             // 更新父节点
@@ -208,7 +206,7 @@ impl App {
                 self.tree
                     .children_map
                     .entry(node.parent_id.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(node_id.clone());
             }
         }
@@ -650,12 +648,14 @@ pub fn handle_key_event(app: &mut App, key: KeyCode) -> io::Result<bool> {
 #[allow(dead_code)]
 pub fn run_event_loop(app: &mut App) -> io::Result<()> {
     loop {
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                if handle_key_event(app, key.code)? {
-                    break;
-                }
-            }
+        if let Event::Key(event::KeyEvent {
+            kind: KeyEventKind::Press,
+            code,
+            ..
+        }) = event::read()?
+            && handle_key_event(app, code)?
+        {
+            break;
         }
     }
     Ok(())
