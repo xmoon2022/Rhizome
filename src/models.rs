@@ -9,8 +9,7 @@ use uuid::Uuid;
 pub enum NodeStatus {
     #[default]
     Active, // 活跃状态
-    Failed,    // 失败状态
-    Completed, // 已完成（内化为习惯）
+    Failed, // 失败状态
 }
 
 /// 国策节点
@@ -204,6 +203,14 @@ impl FocusTree {
         deleted
     }
 
+    pub fn recover_node(&mut self, node_id: &str) {
+        if let Some(node) = self.nodes.get_mut(node_id) {
+            if node.status == NodeStatus::Failed {
+                node.status = NodeStatus::Active;
+            }
+        }
+    }
+
     /// 获取直接子节点
     #[allow(dead_code)]
     pub fn get_children(&self, node_id: &str) -> Vec<&FocusNode> {
@@ -304,5 +311,17 @@ mod tests {
 
         node.created_at = Local::now() - Duration::days(5);
         assert_eq!(node.days_active(), 5);
+    }
+
+    #[test]
+    fn test_recover_node() {
+        let mut tree = FocusTree::new();
+        let id = tree.add_node("task".to_string(), "".to_string(), None);
+
+        tree.fail_node(&id);
+        assert_eq!(tree.nodes.get(&id).unwrap().status, NodeStatus::Failed);
+
+        tree.recover_node(&id);
+        assert_eq!(tree.nodes.get(&id).unwrap().status, NodeStatus::Active);
     }
 }

@@ -223,8 +223,18 @@ impl App {
     }
 
     pub fn start_fail_node(&mut self) {
-        if let Some(id) = self.selected_node_id() {
-            self.mode = AppMode::Confirm(ConfirmAction::Fail(id));
+        if let Some(node) = self.selected_node() {
+            match node.status {
+                NodeStatus::Active => {
+                    let id = node.id.clone();
+                    self.mode = AppMode::Confirm(ConfirmAction::Fail(id));
+                }
+                NodeStatus::Failed => {
+                    let id = node.id.clone();
+                    self.tree.recover_node(&id);
+                    self.message = Some("节点已恢复为活跃状态".to_string());
+                }
+            }
         }
     }
 
@@ -305,13 +315,11 @@ fn render_tree(frame: &mut Frame, app: &mut App, area: Rect) {
             let status_icon = match node.status {
                 NodeStatus::Active => "●",
                 NodeStatus::Failed => "✗",
-                NodeStatus::Completed => "✓",
             };
 
             let status_color = match node.status {
                 NodeStatus::Active => Color::Green,
                 NodeStatus::Failed => Color::Red,
-                NodeStatus::Completed => Color::Blue,
             };
 
             let content = format!(
@@ -373,7 +381,7 @@ fn render_details(frame: &mut Frame, app: &App, area: Rect) {
 fn render_help(frame: &mut Frame, app: &App, area: Rect) {
     let help_text = match &app.mode {
         AppMode::Normal => {
-            "[a] 添加  [e] 编辑内容  [r] 重命名  [m] 移动  [d] 删除  [f] 失败  [j/k] 导航  [q] 退出"
+            "[a] 添加  [e] 编辑  [r] 重命名  [m] 移动  [d] 删除  [f] 失败/激活  [j/k] 导航  [q] 退出"
         }
         AppMode::AddingNode => match app.input_field {
             InputField::Title => "输入标题后按 [Enter] 继续  [Esc] 取消",
