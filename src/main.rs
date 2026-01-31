@@ -57,7 +57,7 @@ fn main() -> io::Result<()> {
     terminal.show_cursor()?;
 
     // 保存数据
-    save_tree(&app.tree, &data_path)?;
+    save_tree(&mut app.tree, &data_path)?;
     println!("数据已保存到 {}", data_path.display());
 
     result

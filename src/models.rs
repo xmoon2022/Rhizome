@@ -51,6 +51,8 @@ impl FocusNode {
     }
 }
 
+pub const DATA_VERSION: &str = "1.0";
+
 /// TOML文件结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FocusTreeData {
@@ -61,7 +63,6 @@ pub struct FocusTreeData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeMeta {
     pub version: String,
-    pub created_at: DateTime<Local>,
     pub last_modified: DateTime<Local>,
 }
 
@@ -70,8 +71,7 @@ impl Default for FocusTreeData {
         let now = Local::now();
         Self {
             meta: TreeMeta {
-                version: "1.0".to_string(),
-                created_at: now,
+                version: DATA_VERSION.to_string(),
                 last_modified: now,
             },
             nodes: Vec::new(),
@@ -85,6 +85,7 @@ pub struct FocusTree {
     pub nodes: HashMap<String, FocusNode>,
     pub root_ids: Vec<String>,
     pub children_map: HashMap<String, Vec<String>>, // parent_id -> child_ids
+    pub dirty: bool,
 }
 
 impl FocusTree {
@@ -93,6 +94,7 @@ impl FocusTree {
             nodes: HashMap::new(),
             root_ids: Vec::new(),
             children_map: HashMap::new(),
+            dirty: false,
         }
     }
 
@@ -101,6 +103,8 @@ impl FocusTree {
         for node in data.nodes {
             tree.insert_node(node);
         }
+        // 从文件加载的不视为脏数据
+        tree.dirty = false;
         tree
     }
 
@@ -109,8 +113,7 @@ impl FocusTree {
         let now = Local::now();
         FocusTreeData {
             meta: TreeMeta {
-                version: "1.0".to_string(),
-                created_at: now, // TODO: preserve original
+                version: DATA_VERSION.to_string(),
                 last_modified: now,
             },
             nodes,
@@ -143,6 +146,7 @@ impl FocusTree {
         let node = FocusNode::new(title, content, parent_id);
         let id = node.id.clone();
         self.insert_node(node);
+        self.dirty = true;
         id
     }
 
@@ -181,17 +185,27 @@ impl FocusTree {
             }
         }
 
+        if !deleted.is_empty() {
+            self.dirty = true;
+        }
         deleted
     }
 
     /// 标记节点失败并级联删除所有子节点
     pub fn fail_node(&mut self, node_id: &str) -> Vec<String> {
+        let mut changed = false;
         // 标记为失败
         if let Some(node) = self.nodes.get_mut(node_id) {
             node.status = NodeStatus::Failed;
+            changed = true;
         }
         // 删除所有子节点
-        self.get_all_descendants(node_id).iter().for_each(|id| {
+        let descendants = self.get_all_descendants(node_id);
+        if !descendants.is_empty() {
+            changed = true;
+        }
+
+        descendants.iter().for_each(|id| {
             self.nodes.remove(id);
         });
 
@@ -200,14 +214,21 @@ impl FocusTree {
         for id in &deleted {
             self.children_map.remove(id);
         }
+
+        if changed {
+            self.dirty = true;
+        }
         deleted
     }
 
     pub fn recover_node(&mut self, node_id: &str) {
-        if let Some(node) = self.nodes.get_mut(node_id) {
-            if node.status == NodeStatus::Failed {
-                node.status = NodeStatus::Active;
-            }
+        if let Some(node) = self
+            .nodes
+            .get_mut(node_id)
+            .filter(|n| n.status == NodeStatus::Failed)
+        {
+            node.status = NodeStatus::Active;
+            self.dirty = true;
         }
     }
 

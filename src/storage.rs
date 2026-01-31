@@ -18,10 +18,17 @@ pub fn load_tree(path: &Path) -> io::Result<FocusTree> {
 }
 
 /// 保存树到TOML文件
-pub fn save_tree(tree: &FocusTree, path: &Path) -> io::Result<()> {
+pub fn save_tree(tree: &mut FocusTree, path: &Path) -> io::Result<()> {
+    if !tree.dirty {
+        return Ok(());
+    }
+
     let data = tree.to_data();
     let content =
         toml::to_string_pretty(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    fs::write(path, content)
+    fs::write(path, content)?;
+    
+    tree.dirty = false;
+    Ok(())
 }
