@@ -45,6 +45,27 @@ pub enum InputField {
     Content,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action {
+    Quit,
+    MoveSelectionUp,
+    MoveSelectionDown,
+
+    // 触发特定功能
+    StartAddNode,
+    StartEditContent,
+    StartEditTitle,
+    StartMoveNode,
+    StartDeleteNode,
+    StartFailNode,
+
+    // 表单/通用交互
+    Cancel,      // Esc / n
+    Submit,      // Enter / y / m
+    Input(char), // 输入字符
+    DeleteChar,  // Backspace
+}
+
 impl App {
     pub fn new(tree: FocusTree) -> Self {
         let mut app = Self {
@@ -59,6 +80,68 @@ impl App {
         };
         app.refresh_display_list();
         app
+    }
+
+    /// 核心逻辑分发
+    pub fn dispatch(&mut self, action: Action) -> bool {
+        match action {
+            Action::Quit => return true,
+            Action::MoveSelectionUp => self.move_up(),
+            Action::MoveSelectionDown => self.move_down(),
+
+            Action::StartAddNode => self.start_add_node(),
+            Action::StartEditContent => self.start_edit_content(),
+            Action::StartEditTitle => self.start_edit_title(),
+            Action::StartMoveNode => self.start_move_node(),
+            Action::StartDeleteNode => self.start_delete_node(),
+            Action::StartFailNode => self.start_fail_node(),
+
+            Action::Cancel => self.cancel(),
+
+            Action::Submit => match &self.mode {
+                AppMode::AddingNode => match self.input_field {
+                    InputField::Title => {
+                        if !self.input_buffer.is_empty() {
+                            self.move_to_content_input();
+                        }
+                    }
+                    InputField::Content => self.confirm_add_node(),
+                },
+                AppMode::EditingContent(id) => {
+                    let id = id.clone();
+                    self.confirm_edit_content(id);
+                }
+                AppMode::EditingTitle(id) => {
+                    let id = id.clone();
+                    self.confirm_edit_title(id);
+                }
+                AppMode::MovingNode(id) => {
+                    let id = id.clone();
+                    self.confirm_move_node(id);
+                }
+                AppMode::Confirm(_) => self.execute_confirm(),
+                AppMode::Normal => {}
+            },
+
+            Action::Input(c) => {
+                if matches!(
+                    self.mode,
+                    AppMode::AddingNode | AppMode::EditingContent(_) | AppMode::EditingTitle(_)
+                ) {
+                    self.input_buffer.push(c);
+                }
+            }
+
+            Action::DeleteChar => {
+                if matches!(
+                    self.mode,
+                    AppMode::AddingNode | AppMode::EditingContent(_) | AppMode::EditingTitle(_)
+                ) {
+                    self.input_buffer.pop();
+                }
+            }
+        }
+        false
     }
 
     pub fn refresh_display_list(&mut self) {
@@ -407,21 +490,46 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(help, area);
 }
 
-fn render_add_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(60, 50, frame.area());
+/// [组件] 弹窗基础框架
+fn render_dialog_framework(frame: &mut Frame, area: Rect, title: &str) -> Rect {
     frame.render_widget(Clear, area);
-
     let block = Block::default()
-        .title("添加新国策")
+        .title(title)
         .borders(Borders::ALL)
         .style(Style::default().fg(Color::Cyan));
-
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    inner
+}
+
+/// [组件] 带有标题和样式的输入框
+fn render_input_widget(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    value: &str,
+    is_focused: bool,
+    active_color: Color,
+) {
+    let style = if is_focused {
+        Style::default().fg(active_color).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    };
+
+    let input = Paragraph::new(value)
+        .style(style)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title(title).borders(Borders::ALL));
+    frame.render_widget(input, area);
+}
+
+fn render_add_dialog(frame: &mut Frame, app: &App) {
+    let area = centered_rect(60, 50, frame.area());
+    let inner = render_dialog_framework(frame, area, "添加新国策");
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
         .constraints([
             Constraint::Length(3),
             Constraint::Length(5),
@@ -430,101 +538,47 @@ fn render_add_dialog(frame: &mut Frame, app: &App) {
         .split(inner);
 
     // 标题输入
-    let title_display = if app.input_field == InputField::Title {
-        app.input_buffer.as_str()
-    } else {
-        app.temp_title.as_str()
-    };
+    let is_title_active = app.input_field == InputField::Title;
+    let title_val = if is_title_active { &app.input_buffer } else { &app.temp_title };
+    render_input_widget(frame, chunks[0], "标题", title_val, is_title_active, Color::Yellow);
 
-    let title_style = if app.input_field == InputField::Title {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default().fg(Color::Green)
-    };
-
-    let title_input = Paragraph::new(title_display)
-        .style(title_style)
-        .block(Block::default().title("标题").borders(Borders::ALL));
-    frame.render_widget(title_input, chunks[0]);
-
-    // 内容输入 - 只在内容输入阶段显示内容
-    let content_display = if app.input_field == InputField::Content {
-        app.input_buffer.as_str()
-    } else {
-        "" // 标题阶段时不显示内容
-    };
-
-    let content_style = if app.input_field == InputField::Content {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-
-    let content_input = Paragraph::new(content_display)
-        .style(content_style)
-        .wrap(Wrap { trim: false })
-        .block(Block::default().title("内容 (可选)").borders(Borders::ALL));
-    frame.render_widget(content_input, chunks[1]);
+    // 内容输入
+    let is_content_active = app.input_field == InputField::Content;
+    let content_val = if is_content_active { &app.input_buffer } else { "" };
+    render_input_widget(frame, chunks[1], "内容 (可选)", content_val, is_content_active, Color::Yellow);
 
     let hint = match app.input_field {
         InputField::Title => "输入标题后按 Enter 继续",
         InputField::Content => "输入内容后按 Enter 完成（可留空）",
     };
-    let hint_widget = Paragraph::new(hint).style(Style::default().fg(Color::Gray));
-    frame.render_widget(hint_widget, chunks[2]);
+    frame.render_widget(Paragraph::new(hint).style(Style::default().fg(Color::Gray)), chunks[2]);
 }
 
 fn render_edit_content_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(70, 40, frame.area());
-    frame.render_widget(Clear, area);
-
-    let block = Block::default()
-        .title("编辑内容")
-        .borders(Borders::ALL)
-        .style(Style::default().fg(Color::Cyan));
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let area = centered_rect(70, 30, frame.area());
+    let inner = render_dialog_framework(frame, area, "编辑内容");
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([Constraint::Min(5), Constraint::Length(2)])
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
         .split(inner);
 
-    let content_input = Paragraph::new(app.input_buffer.as_str())
-        .style(Style::default().fg(Color::Yellow))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().title("内容").borders(Borders::ALL));
-    frame.render_widget(content_input, chunks[0]);
-
+    render_input_widget(frame, chunks[0], "内容", &app.input_buffer, true, Color::Yellow);
+    
     let hint = Paragraph::new("按 Enter 保存，Esc 取消").style(Style::default().fg(Color::Gray));
     frame.render_widget(hint, chunks[1]);
 }
 
 fn render_edit_title_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(70, 40, frame.area());
-    frame.render_widget(Clear, area);
-
-    let block = Block::default()
-        .title("编辑节点标题")
-        .borders(Borders::ALL)
-        .style(Style::default().fg(Color::Cyan));
-
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let area = centered_rect(70, 30, frame.area());
+    let inner = render_dialog_framework(frame, area, "编辑标题");
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([Constraint::Min(5), Constraint::Length(2)])
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
         .split(inner);
 
-    let content_input = Paragraph::new(app.input_buffer.as_str())
-        .style(Style::default().fg(Color::Yellow))
-        .wrap(Wrap { trim: false })
-        .block(Block::default().title("标题").borders(Borders::ALL));
-    frame.render_widget(content_input, chunks[0]);
+    render_input_widget(frame, chunks[0], "标题", &app.input_buffer, true, Color::Yellow);
 
     let hint = Paragraph::new("按 Enter 保存，Esc 取消").style(Style::default().fg(Color::Gray));
     frame.render_widget(hint, chunks[1]);
@@ -566,90 +620,50 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-/// 处理按键事件
-pub fn handle_key_event(app: &mut App, key: KeyCode) -> io::Result<bool> {
-    match &app.mode {
+/// 根据当前模式和按键获取对应的 Action
+fn get_action(mode: &AppMode, key: KeyCode) -> Option<Action> {
+    match mode {
         AppMode::Normal => match key {
-            KeyCode::Char('q') => return Ok(true),
-            KeyCode::Char('j') | KeyCode::Down => app.move_down(),
-            KeyCode::Char('k') | KeyCode::Up => app.move_up(),
-            KeyCode::Char('a') => app.start_add_node(),
-            KeyCode::Char('e') => app.start_edit_content(),
-            KeyCode::Char('r') => app.start_edit_title(),
-            KeyCode::Char('m') => app.start_move_node(),
-            KeyCode::Char('d') => app.start_delete_node(),
-            KeyCode::Char('f') => app.start_fail_node(),
-            _ => {}
+            KeyCode::Char('q') => Some(Action::Quit),
+            KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveSelectionDown),
+            KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveSelectionUp),
+            KeyCode::Char('a') => Some(Action::StartAddNode),
+            KeyCode::Char('e') => Some(Action::StartEditContent),
+            KeyCode::Char('r') => Some(Action::StartEditTitle),
+            KeyCode::Char('m') => Some(Action::StartMoveNode),
+            KeyCode::Char('d') => Some(Action::StartDeleteNode),
+            KeyCode::Char('f') => Some(Action::StartFailNode),
+            _ => None,
         },
-        AppMode::AddingNode => match key {
-            KeyCode::Esc => app.cancel(),
-            KeyCode::Enter => {
-                match app.input_field {
-                    InputField::Title => {
-                        if !app.input_buffer.is_empty() {
-                            app.move_to_content_input();
-                        }
-                    }
-                    InputField::Content => {
-                        // 内容可以为空
-                        app.confirm_add_node();
-                    }
-                }
-            }
-            KeyCode::Backspace => {
-                app.input_buffer.pop();
-            }
-            KeyCode::Char(c) => {
-                app.input_buffer.push(c);
-            }
-            _ => {}
+        AppMode::AddingNode | AppMode::EditingContent(_) | AppMode::EditingTitle(_) => match key {
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Enter => Some(Action::Submit),
+            KeyCode::Backspace => Some(Action::DeleteChar),
+            KeyCode::Char(c) => Some(Action::Input(c)),
+            _ => None,
         },
-        AppMode::EditingContent(node_id) => match key {
-            KeyCode::Esc => app.cancel(),
-            KeyCode::Enter => {
-                let id = node_id.clone();
-                app.confirm_edit_content(id);
-            }
-            KeyCode::Backspace => {
-                app.input_buffer.pop();
-            }
-            KeyCode::Char(c) => {
-                app.input_buffer.push(c);
-            }
-            _ => {}
-        },
-        AppMode::EditingTitle(node_id) => match key {
-            KeyCode::Esc => app.cancel(),
-            KeyCode::Enter => {
-                let id = node_id.clone();
-                app.confirm_edit_title(id);
-            }
-            KeyCode::Backspace => {
-                app.input_buffer.pop();
-            }
-            KeyCode::Char(c) => {
-                app.input_buffer.push(c);
-            }
-            _ => {}
-        },
-        AppMode::MovingNode(node_id) => match key {
-            KeyCode::Esc => app.cancel(),
-            KeyCode::Char('m') | KeyCode::Char('M') => {
-                let id = node_id.clone();
-                app.confirm_move_node(id);
-            }
-            KeyCode::Char('j') | KeyCode::Down => app.move_down(),
-            KeyCode::Char('k') | KeyCode::Up => app.move_up(),
-            _ => {}
+        AppMode::MovingNode(_) => match key {
+            KeyCode::Esc => Some(Action::Cancel),
+            KeyCode::Char('m') | KeyCode::Char('M') => Some(Action::Submit),
+            KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveSelectionDown),
+            KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveSelectionUp),
+            _ => None,
         },
         AppMode::Confirm(_) => match key {
-            KeyCode::Char('y') | KeyCode::Char('Y') => app.execute_confirm(),
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => app.cancel(),
-            _ => {}
+            KeyCode::Char('y') | KeyCode::Char('Y') => Some(Action::Submit),
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Some(Action::Cancel),
+            _ => None,
         },
     }
+}
 
-    Ok(false)
+/// 处理按键事件
+pub fn handle_key_event(app: &mut App, key: KeyCode) -> io::Result<bool> {
+    if let Some(action) = get_action(&app.mode, key) {
+        Ok(app.dispatch(action))
+    } else {
+        Ok(false)
+    }
 }
 
 /// 运行事件循环

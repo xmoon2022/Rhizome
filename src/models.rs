@@ -169,6 +169,7 @@ impl FocusTree {
 
     /// 删除节点及其所有子节点（堆栈式删除）
     pub fn delete_node(&mut self, node_id: &str) -> Vec<String> {
+        self.dirty = true;
         let mut deleted = vec![node_id.to_string()];
         deleted.extend(self.get_all_descendants(node_id));
 
@@ -185,26 +186,19 @@ impl FocusTree {
             }
         }
 
-        if !deleted.is_empty() {
-            self.dirty = true;
-        }
         deleted
     }
 
     /// 标记节点失败并级联删除所有子节点
     pub fn fail_node(&mut self, node_id: &str) -> Vec<String> {
-        let mut changed = false;
+        self.dirty = true;
         // 标记为失败
         if let Some(node) = self.nodes.get_mut(node_id) {
             node.status = NodeStatus::Failed;
-            changed = true;
         }
         // 删除所有子节点
         let descendants = self.get_all_descendants(node_id);
-        if !descendants.is_empty() {
-            changed = true;
-        }
-
+        
         descendants.iter().for_each(|id| {
             self.nodes.remove(id);
         });
@@ -214,10 +208,7 @@ impl FocusTree {
         for id in &deleted {
             self.children_map.remove(id);
         }
-
-        if changed {
-            self.dirty = true;
-        }
+        
         deleted
     }
 
